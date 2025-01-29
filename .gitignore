@@ -1,0 +1,33 @@
+# تجاهل مجلد node_modules
+node_modules/
+
+# تجاهل ملفات البيئة
+.env
+
+# تجاهل ملفات سجل Git
+*.log
+
+# تجاهل مجلدات النظام
+.DS_Store
+Thumbs.db
+
+# تجاهل ملفات بناء Node.js
+dist/
+build/
+
+# تجاهل ملفات الباكاب المؤقتة
+*.swp
+*.swo
+*.bak
+
+# تجاهل ملفات NPM الخاصة بالأدوات والـ cache
+npm-debug.log
+yarn-debug.log
+yarn-error.log
+
+# تجاهل إعدادات IDE/التحرير
+.vscode/
+.idea/
+
+# تجاهل ملفات تشغيل و تثبيت Jest
+coverage/
