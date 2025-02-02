@@ -32,6 +32,7 @@ async function createTables() {
           date_dexpiration DATE NULL,
           info_sub_de_relation VARCHAR(255) NULL,
           date_dexpiration_permis DATE NULL,
+          date_naissance DATE NULL,
           categorie_domandee VARCHAR(255) NULL,
           numero_du_permis_de_conduire VARCHAR(20) NULL,
           valabe_pour_les_categore VARCHAR(255) NULL,
@@ -77,8 +78,21 @@ async function createTables() {
         heurs VARCHAR(255) NULL,
         Morningorevening VARCHAR(255) NULL,
         responsable VARCHAR(255) NULL,
+        monitor VARCHAR(255) NULL,
         date DATE NOT NULL,
         FOREIGN KEY (candidate_id) REFERENCES candidates(id) ON DELETE CASCADE
+      );
+    `);
+    await connection.execute(`
+      CREATE TABLE IF NOT EXISTS heure_nouveaux   (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        montant DECIMAL(10, 2) NOT NULL,
+        heurs VARCHAR(255) NULL,
+        Morningorevening VARCHAR(255) NULL,
+        responsable VARCHAR(255) NULL,
+        monitor VARCHAR(255) NULL,
+        date DATE NOT NULL
+        
       );
     `);
 

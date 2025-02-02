@@ -1,5 +1,6 @@
 // استيراد المكتبات المطلوبة
 const express = require('express');
+const http = require('http'); // استيراد http
 const app = express();
 const cors = require('cors');
 const jwt = require('jsonwebtoken'); // مكتبة لإنشاء والتحقق من الـ Token
@@ -26,36 +27,70 @@ const getHeursByCandidate = require('./Routes/heur/getHeursByCandidate');
 const addHeur = require('./Routes/heur/addHeur');
 const reservations = require('./Routes/reservations/reservations');
 const getallreservations = require('./Routes/reservations/getAllReservations');
+const getallAvance = require('./Routes/getallAvance');
+const getallderaveng = require('./Routes/getallDraveng')
+const socketIo = require('socket.io');
 require('./cronJob');
 require('./changestate');
 require('dotenv').config(); // استيراد dotenv لتحميل متغيرات البيئة
+
+const server = http.createServer(app); // إنشاء خادم باستخدام http
+const io = socketIo(server); // تهيئة socket.io
+
 
 const helmet = require('helmet');
 app.use(helmet.contentSecurityPolicy({
   directives: {
     defaultSrc: ["'self'"],
-    connectSrc: ["'self'", 'https://abdelilahrazik.com'],
+    connectSrc: ["'self'", 'https://abdelilahrazik.com', 'ws://localhost:3000',
+      'wss://abdelilahrazik.com',
+    ], // السماح باتصالات WebSocket
   },
 }));
 
 // تعريف المنفذ
 const port = process.env.PORT || 3000;
+
+// إعداد CORS
+const corsOptions = {
+  origin: [
+    'http://localhost:3000', // السماح لطلبات من تطبيق React (في مرحلة التطوير)
+    'https://abdelilahrazik.com', // السماح لطلبات من نطاقك
+    'http://localhost:5173', // إذا كنت تستخدم Vite في مرحلة التطوير
+    'electron://*', // السماح لطلبات من تطبيق Electron
+  ],
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'], // السماح بطرق HTTP المطلوبة
+  allowedHeaders: ['Content-Type', 'Authorization'], // السماح للهيدرات المطلوبة
+  credentials: true, // السماح بإرسال البيانات الاعتمادية (مثل الكوكيز)
+};
+
+
+
+// إرفاق io بـ app لاستخدامه في الروابط
+app.set('io', io);
+
+// إعداد socket.io للاتصالات
+io.on('connection', (socket) => {
+  console.log('A client connected');
+
+  socket.on('disconnect', () => {
+    console.log('A client disconnected');
+  });
+});
+
+
+app.use(cors(corsOptions)); // تطبيق CORS مع الخيارات
 app.use(express.json());
-app.use(cors());
-
-
-
-
-app.use('/loginuser', loginuser);
-// تطبيق Middleware على جميع الـ Routes (باستثناء /login)
-// app.use('/candidates', authenticateToken);
 
 // Routes
+app.use('/loginuser', loginuser);
 app.use('/candidates', candidatesRoutes);
 app.use('/candidates', updateinfo);
 app.use('/candidates', getallcandidates);
 app.use('/avances', avancesRoutes);
+app.use('/avances', getallAvance);
 app.use('/draveng', drave);
+app.use('/draveng', getallderaveng);
 app.use('/responsables', responsables);
 app.use('/nomeschool', nomeschool);
 app.use('/monitor', monitor);
@@ -64,15 +99,14 @@ app.use('/financier', financier_de_letablissement);
 app.use('/getpdf', getpdf);
 app.use('/api', driversRoutes);
 app.use('/candidates', resetpassword);
-app.use('/heurs' , getAllHeurs);
-app.use('/heurs' , getHeursByCandidate);
-app.use('/heurs' , addHeur);
+app.use('/heurs', getAllHeurs);
+app.use('/heurs', getHeursByCandidate);
+app.use('/heurs', addHeur);
 app.use('/reservations', reservations);
-app.use('/reservations', getallreservations); 
-
+app.use('/reservations', getallreservations);
 
 // تشغيل الخادم
-app.listen(port, () => {
+server.listen(port, () => {
   console.log(`http://localhost:${port}`);
 });
 

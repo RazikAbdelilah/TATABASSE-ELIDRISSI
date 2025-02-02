@@ -156,4 +156,26 @@ router.put('/financier_de_letablissement/:candidate_id', async (req, res) => {
   }
 });
 
+
+
+router.get('/getallfinancier_de_letablissement', async (req, res) => {
+  const connection = await pool.getConnection();
+
+  try {
+    // استعلام SQL لجلب جميع البيانات من الجدول
+    const [rows] = await connection.execute(`SELECT * FROM financier_de_letablissement`);
+    
+    // إرجاع البيانات في استجابة JSON
+    res.status(200).json({ success: true, data: rows });
+
+  } catch (err) {
+    console.error('Error fetching data:', err.message);
+    res.status(500).json({ success: false, message: 'Error fetching data', error: err.message });
+
+  } finally {
+    connection.release();
+  }
+});
+
+
 module.exports = router; // تصدير الـ Router

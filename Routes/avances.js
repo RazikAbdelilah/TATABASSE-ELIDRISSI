@@ -64,6 +64,17 @@ router.post('/addavance', async (req, res) => {
     // تأكيد المعاملة
     await connection.commit();
 
+    // إرسال إشعار عبر Socket.IO
+    const io = req.app.get('io');
+    io.emit('avanceAdded', {
+      id: result.insertId,
+      candidate_id,
+      montant,
+      date,
+      number_duserie,
+      Numéro_desérie_pardéfaut,
+    });
+
     res.status(201).json({ 
       message: 'Avance added successfully', 
       id: result.insertId, 
