@@ -1,5 +1,6 @@
 const express = require('express');
 const bcrypt = require('bcrypt');
+const jwt = require('jsonwebtoken');
 const { pool } = require('../database'); // افترض أن لديك ملف "database.js" يحتوي على إعدادات الاتصال بقاعدة البيانات.
 
 const router = express.Router();
@@ -10,7 +11,7 @@ const router = express.Router();
 router.post('/addresponsable', async (req, res) => {
   const connection = await pool.getConnection();
   try {
-    const { username, password, increased_driving_days, increased_avance_days, number_change_state } = req.body;
+    const { username, password, increased_driving_days, nomeschool, increased_avance_days, number_change_state, admin } = req.body;
 
     // تحقق من الحقول المطلوبة
     if (!username || !password) {
@@ -30,16 +31,18 @@ router.post('/addresponsable', async (req, res) => {
     // تشفير كلمة المرور
     const hashedPassword = await bcrypt.hash(password, 10);
 
-    // إدخال المسؤول الجديد إلى الجدول
+    // إدخال المسؤول الجديد إلى الجدول مع حقل admin
     const [result] = await connection.execute(
-      `INSERT INTO responsables (username, password, increased_driving_days, increased_avance_days, number_change_state)
-       VALUES (?, ?, ?, ?, ?)`,
+      `INSERT INTO responsables (username, password, nomeschool, increased_driving_days, increased_avance_days, number_change_state, admin)
+       VALUES (?, ?, ?, ?, ?, ?, ? )`,
       [
         username,
         hashedPassword,
+        nomeschool,
         increased_driving_days || false, // القيمة الافتراضية إذا لم يتم إرسالها
         increased_avance_days || false, // القيمة الافتراضية إذا لم يتم إرسالها
-        number_change_state || 0 // القيمة الافتراضية إذا لم يتم إرسالها
+        number_change_state || 0, // القيمة الافتراضية إذا لم يتم إرسالها
+        admin === true // التأكد من أن admin يكون true أو false فقط
       ]
     );
 
@@ -56,87 +59,87 @@ router.post('/addresponsable', async (req, res) => {
 
 
 
-router.put('/updateresponsable', async (req, res) => {
+
+router.put('/updateresponsable/:id', async (req, res) => {
+  const { id } = req.params;
+  const {
+    username,
+    Increased_driving_days,
+    Increased_avance_days,
+    number_change_state,
+    nomeschool
+  } = req.body;
+
+  if (!id || !username) {
+    return res.status(400).json({ message: 'ID and username are required' });
+  }
+
   const connection = await pool.getConnection();
   try {
-    const { username, password, increased_driving_days, increased_avance_days, number_change_state } = req.body;
+    console.log("Received data:", req.body); // DEBUG
 
-    // تحقق من الحقول المطلوبة
-    if (!username) {
-      return res.status(400).json({ message: 'Username is required' });
-    }
-
-    // التحقق من وجود المسؤول مسبقًا باستخدام اسم المستخدم
     const [existingUser] = await connection.execute(
-      'SELECT * FROM responsables WHERE username = ?',
-      [username]
+      'SELECT * FROM responsables WHERE id = ?',
+      [id]
     );
 
     if (existingUser.length === 0) {
-      return res.status(404).json({ message: 'Username does not exist' });
+      return res.status(404).json({ message: 'Responsable not found' });
     }
 
-    // تشفير كلمة المرور إذا تم إرسالها
-    let hashedPassword = existingUser[0].password;
-    if (password) {
-      hashedPassword = await bcrypt.hash(password, 10);
-    }
-
-    // تحديث بيانات المسؤول
-    await connection.execute(
+    const [updateResult] = await connection.execute(
       `UPDATE responsables
-       SET password = ?, 
+       SET username = ?, 
            Increased_driving_days = ?, 
            Increased_avance_days = ?, 
-           number_change_state = ?
-       WHERE username = ?`,
-      [
-        hashedPassword,
-        increased_driving_days !== undefined ? increased_driving_days : existingUser[0].Increased_driving_days,
-        increased_avance_days !== undefined ? increased_avance_days : existingUser[0].Increased_avance_days,
-        number_change_state !== undefined ? number_change_state : existingUser[0].number_change_state,
-        username
-      ]
+           number_change_state = ?, 
+           nomeschool = ?
+       WHERE id = ?`,
+      [username, Increased_driving_days, Increased_avance_days, number_change_state, nomeschool, id]
     );
 
-    res.status(200).json({ message: 'Responsable updated successfully' });
-  } catch (err) {
-    console.error('Error updating responsable:', err.message);
-    res.status(500).json({ message: 'An error occurred', error: err.message });
-  } finally {
-    connection.release(); // إغلاق الاتصال دائمًا
-  }
-});
-
-
-
-
-
-
-
-
-
-
-
-router.get('/getallresponsables', async (req, res) => {
-  const connection = await pool.getConnection();
-  try {
-    // استعلام لجلب جميع المسؤولين من جدول responsables
-    const [responsables] = await connection.execute('SELECT * FROM responsables');
-
-    // التحقق من وجود المسؤولين
-    if (responsables.length === 0) {
-      return res.status(404).json({ message: 'No responsables found' });
+    if (updateResult.affectedRows === 0) {
+      return res.status(400).json({ message: 'No changes were made' });
     }
 
-    res.status(200).json(responsables);  // إرجاع جميع المسؤولين
+    const [updatedUser] = await connection.execute(
+      'SELECT id, username, Increased_driving_days, Increased_avance_days, number_change_state, nomeschool FROM responsables WHERE id = ?',
+      [id]
+    );
+
+    res.status(200).json({
+      message: 'Responsable updated successfully',
+      responsable: updatedUser[0]
+    });
+
   } catch (err) {
-    console.error('Error fetching responsables:', err.message);
+    console.error('Error updating responsable:', err.message);
     res.status(500).json({ message: 'An error occurred', error: err.message });
   } finally {
     connection.release();
   }
 });
+
+
+
+
+
+
+
+
+
+
+
+router.get('/responsables', async (req, res) => {
+  try {
+    const [responsables] = await pool.execute("SELECT * FROM responsables");
+    res.status(200).json(responsables);
+  } catch (error) {
+    console.error("Error fetching responsables:", error);
+    res.status(500).json({ message: "Server error" });
+  }
+});
+
 
  
 
@@ -148,51 +151,60 @@ router.get('/getallresponsables', async (req, res) => {
 // تسجيل الدخول
 // تسجيل الدخول
 router.post('/login', async (req, res) => {
-    const { username, password } = req.body;
-  
-    if (!username || !password) {
+  const { username, password } = req.body;
+
+  if (!username || !password) {
       return res.status(400).json({ message: 'Missing username or password' });
-    }
-  
-    const connection = await pool.getConnection();
-    try {
+  }
+
+  const connection = await pool.getConnection();
+  try {
       // التحقق من اسم المستخدم في قاعدة البيانات
       const [rows] = await connection.execute(
-        'SELECT id, username, password, created_at, increased_avance_days, increased_driving_days , nomeschool FROM responsables WHERE username = ?',
-        [username]
+          'SELECT id, username, password, created_at, increased_avance_days, increased_driving_days, admin , nomeschool FROM responsables WHERE username = ?',
+          [username]
       );
-  
+
       if (rows.length === 0) {
-        return res.status(401).json({ message: 'Invalid username or password' });
+          return res.status(401).json({ message: 'Invalid username or password' });
       }
-  
+
       const responsable = rows[0];
-  
+
       // التحقق من كلمة المرور باستخدام bcrypt
       const isPasswordValid = await bcrypt.compare(password, responsable.password);
       if (!isPasswordValid) {
-        return res.status(401).json({ message: 'Invalid username or password' });
+          return res.status(401).json({ message: 'Invalid username or password' });
       }
-  
+
+      // إنشاء token باستخدام jsonwebtoken
+      const token = jwt.sign(
+          { id: responsable.id, username: responsable.username }, // البيانات التي سيتم تخزينها في token
+          'your-secret-key', // مفتاح سري لتوقيع token (يجب أن يكون آمنًا ويتم تخزينه في متغيرات البيئة)
+          { expiresIn: '10h' } // مدة صلاحية token (ساعة واحدة في هذا المثال)
+      );
+
       // تسجيل الدخول ناجح
       res.status(200).json({
-        message: 'Login successful',
-        user: {
-          id: responsable.id,
-          username: responsable.username,
-          created_at: responsable.created_at,
-          increased_avance_days: responsable.increased_avance_days,
-          increased_driving_days: responsable.increased_driving_days,
-          nomeschool: responsable.nomeschool
-        },
+          message: 'Login successful',
+          token: token, // إرسال token كجزء من الاستجابة
+          user: {
+              id: responsable.id,
+              username: responsable.username,
+              created_at: responsable.created_at,
+              increased_avance_days: responsable.increased_avance_days,
+              increased_driving_days: responsable.increased_driving_days,
+              nomeschool: responsable.nomeschool,
+              admin : responsable.admin
+          },
       });
-    } catch (err) {
+  } catch (err) {
       console.error('Error during login:', err.message);
       res.status(500).json({ message: 'An error occurred', error: err.message });
-    } finally {
+  } finally {
       connection.release();
-    }
-  });
+  }
+});
   
 
 
@@ -228,6 +240,44 @@ router.post('/login', async (req, res) => {
       connection.release();
     }
   });
+
+
+
+
+
+
+  router.delete('/deleteresponsable/:id', async (req, res) => {
+    const connection = await pool.getConnection();
+    try {
+      const { id } = req.params;
+  
+      // تحقق مما إذا كان id موجودًا
+      if (!id) {
+        return res.status(400).json({ message: 'Responsable ID is required' });
+      }
+  
+      // التحقق مما إذا كان المسؤول موجودًا قبل الحذف
+      const [existingUser] = await connection.execute(
+        'SELECT * FROM responsables WHERE id = ?',
+        [id]
+      );
+  
+      if (existingUser.length === 0) {
+        return res.status(404).json({ message: 'Responsable not found' });
+      }
+  
+      // تنفيذ عملية الحذف
+      await connection.execute('DELETE FROM responsables WHERE id = ?', [id]);
+  
+      res.status(200).json({ message: 'Responsable deleted successfully' });
+    } catch (err) {
+      // console.error('Error deleting responsable:', err.message);
+      res.status(500).json({ message: 'An error occurred', error: err.message });
+    } finally {
+      connection.release(); // إغلاق الاتصال دائمًا
+    }
+  });
+  
   
 
 module.exports = router;

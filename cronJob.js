@@ -1,8 +1,8 @@
 const cron = require('node-cron');
 const { pool } = require('./database');
 
-cron.schedule('0 0 * * *', async () => {
-  console.log('Running state update task...');
+cron.schedule('* * * * *', async () => {
+  // console.log('Running state update task...');
   const connection = await pool.getConnection();
 
   try {
@@ -11,7 +11,9 @@ cron.schedule('0 0 * * *', async () => {
       SELECT 
         c.id, c.state, c.paiment_total_necessair, 
         COALESCE(a.montant, 0) AS last_payment, a.date AS last_payment_date,
-        c.intervale1, c.intervale2, c.intervale3, c.intervale4
+        c.intervale1, c.intervale2, c.intervale3, c.intervale4,
+        f.apt_exam_theoriqe_1, f.apt_exam_theoriqe_2, f.inapt_exam_theoriqe_1, f.inapt_exam_theoriqe_2,
+        f.apt_exam_pratiqe_1, f.apt_exam_pratiqe_2, f.inapt_exam_pratiqe_1, f.inapt_exam_pratiqe_2
       FROM candidates c
       LEFT JOIN avances a 
         ON c.id = a.candidate_id 
@@ -20,6 +22,8 @@ cron.schedule('0 0 * * *', async () => {
           FROM avances 
           WHERE candidate_id = c.id
         )
+      LEFT JOIN financier_de_letablissement f
+        ON c.id = f.candidate_id
     `);
 
     const today = new Date();
@@ -28,7 +32,9 @@ cron.schedule('0 0 * * *', async () => {
       const {
         id, state, paiment_total_necessair,
         last_payment, last_payment_date,
-        intervale1, intervale2, intervale3, intervale4
+        intervale1, intervale2, intervale3,
+        apt_exam_theoriqe_1, apt_exam_theoriqe_2, inapt_exam_theoriqe_1, inapt_exam_theoriqe_2,
+        apt_exam_pratiqe_1, apt_exam_pratiqe_2, inapt_exam_pratiqe_1, inapt_exam_pratiqe_2
       } = result;
 
       const lastPaymentDate = last_payment_date ? new Date(last_payment_date) : null;
@@ -39,23 +45,17 @@ cron.schedule('0 0 * * *', async () => {
       let newState = state;
 
       try {
-        // حساب النسبة المئوية للدفعة الأخيرة فقط
-        const paymentPercentage = paiment_total_necessair > 0
-          ? (last_payment / paiment_total_necessair) * 100
-          : 0;
-
-        // تحديد الحالة بناءً على النسبة المئوية مع الفترات الزمنية
-        if (paymentPercentage >= 70 && paymentPercentage < 100) {
-          newState = 'Bon';
-        } else if (paymentPercentage >= 50 && paymentPercentage < 70) {
-          newState = daysDiff !== null && daysDiff > intervale3 ? 'Pasbon' : 'Bon';
-        } else if (paymentPercentage >= 25 && paymentPercentage < 50) {
-          newState = daysDiff !== null && daysDiff > intervale2 ? 'Pasbon' : 'Bon';
-        } else if (paymentPercentage >= 10 && paymentPercentage < 25) {
-          newState = daysDiff !== null && daysDiff > intervale1 ? 'Pasbon' : 'Bon';
-        } else if (paymentPercentage >= 0 && paymentPercentage < 10) {
-          newState = 'Pasbon';
-        }
+        // التحقق من الأعمدة لضبط الحالة إلى "théorique" أو "pratique"
+        if (
+          apt_exam_pratiqe_1 || apt_exam_pratiqe_2 || inapt_exam_pratiqe_1 || inapt_exam_pratiqe_2
+        ) {
+          newState = 'pratique';
+        } else if (
+          apt_exam_theoriqe_1 || apt_exam_theoriqe_2 || inapt_exam_theoriqe_1 || inapt_exam_theoriqe_2
+        ) {
+          newState = 'théorique';
+        } 
+        
 
         // تحديث الحالة في قاعدة البيانات إذا تغيرت
         if (newState !== state) {
@@ -65,16 +65,16 @@ cron.schedule('0 0 * * *', async () => {
             WHERE id = ?
           `, [newState, id]);
 
-          console.log(`Candidate ID: ${id} state updated to: ${newState}`);
+          // console.log(`Candidate ID: ${id} state updated to: ${newState}`);
         }
       } catch (err) {
-        console.error(`Error processing candidate ID: ${id}, Error: ${err.message}`);
+        // console.error(`Error processing candidate ID: ${id}, Error: ${err.message}`);
       }
     }
 
-    console.log('State update task completed');
+    // console.log('State update task completed');
   } catch (err) {
-    console.error('Error updating states:', err.message);
+    // console.error('Error updating states:', err.message);
   } finally {
     connection.release();
   }

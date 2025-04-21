@@ -1,6 +1,21 @@
 const express = require('express');
 const router = express.Router();
 const { pool } = require('../../database');
+const crypto = require('crypto');
+
+require('dotenv').config(); // تحميل المتغيرات من .env
+
+// دالة لفك تشفير القيمة باستخدام createDecipheriv
+function decryptValue(encryptedValue, secretKey) {
+  const algorithm = 'aes-256-cbc';
+  const [ivHex, encrypted] = encryptedValue.split(':'); // فصل IV والقيمة المشفرة
+  const key = crypto.scryptSync(secretKey, 'salt', 32); // مفتاح بطول 32 بايت
+  const iv = Buffer.from(ivHex, 'hex'); // تحويل IV من نص hex إلى Buffer
+  const decipher = crypto.createDecipheriv(algorithm, key, iv);
+  let decrypted = decipher.update(encrypted, 'hex', 'utf8');
+  decrypted += decipher.final('utf8');
+  return decrypted;
+}
 
 // استخدام middleware للتحقق من التوكن قبل الوصول إلى الـ route
 router.get('/getall', async (req, res) => {
@@ -15,31 +30,16 @@ router.get('/getall', async (req, res) => {
       return res.status(404).json({ message: 'No candidates found' });
     }
 
-    // استعلامات لجلب البيانات المرتبطة من الجداول الأخرى
-    const [avances] = await connection.execute(`
-      SELECT * FROM avances
-    `);
+   
 
     const [financier] = await connection.execute(`
       SELECT * FROM financier_de_letablissement
     `);
-
-    const [draveng] = await connection.execute(`
-      SELECT * FROM draveng
-    `);
-
-    const [heurs] = await connection.execute(`
-      SELECT * FROM heurs
-    `);
-
     // دمج البيانات مع candidates
     const candidatesWithDetails = candidates.map(candidate => {
       return {
         ...candidate,
-        avances: avances.filter(avance => avance.candidate_id === candidate.id),
-        financier_de_letablissement: financier.filter(f => f.candidate_id === candidate.id),
-        draveng: draveng.filter(d => d.candidate_id === candidate.id),
-        heurs: heurs.filter(h => h.candidate_id === candidate.id),
+        financier_de_letablissement: financier.filter(f => f.candidate_id === candidate.id), 
       };
     });
 
@@ -52,11 +52,11 @@ router.get('/getall', async (req, res) => {
     }
 
     res.status(200).json({
-      message: 'All candidates and related data retrieved successfully',
+      message: 'Tous les candidats et les données connexes ont été récupérés avec succès',
       data: candidatesWithDetails,
     });
   } catch (err) {
-    console.error('Error while retrieving candidates and related data:', err.message);
+    console.error('Erreur lors de la récupération des candidats et des données connexes :', err.message);
     res.status(500).json({
       message: 'An error occurred',
       error: err.message,

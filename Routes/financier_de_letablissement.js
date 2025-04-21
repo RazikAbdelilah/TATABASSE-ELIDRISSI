@@ -1,81 +1,61 @@
 const express = require('express');
-const router = express.Router(); // تعريف الـ Router
+const router = express.Router();
 const { pool } = require('../database');
 
-// مسار لإضافة البيانات إلى جدول financier_de_letablissement
-router.post('/financier_de_letablissement', async (req, res) => {
-  const {
-    candidate_id,
-    jour_pours_legaliser,
-    exam_medical,
-    frais_de_timbre,
-    la_fin_de_la_formation,
-    les_devoirs_finaancier_de_letablissement,
-    exam_theoriqe_1, // تأكد من أن التاريخ تم إرساله بالتنسيق الصحيح
-    exam_theoriqe_2, // تأكد من أن التاريخ تم إرساله بالتنسيق الصحيح
-    exam_pratiqe_1, // تأكد من أن التاريخ تم إرساله بالتنسيق الصحيح
-    exam_pratiqe_2,
-    inapt_exam_pratiqe_1,
-    inapt_exam_pratiqe_2,
-    apt_exam_pratiqe_1,
-    apt_exam_pratiqe_2,
-    apt_exam_theoriqe_1,
-    apt_exam_theoriqe_2,
-    inapt_exam_theoriqe_1, // تأكد من أن التاريخ تم إرساله بالتنسيق الصحيح
-    inapt_exam_theoriqe_2
-  } = req.body;
+// دالة مساعدة لتحديث حالة المرشح
+async function updateCandidateState(connection, candidate_id) {
+    try {
+        // جلب بيانات الاختبارات للمرشح
+        const [financierData] = await connection.execute(`
+            SELECT 
+                apt_exam_theoriqe_1, apt_exam_theoriqe_2, inapt_exam_theoriqe_1, inapt_exam_theoriqe_2,
+                apt_exam_pratiqe_1, apt_exam_pratiqe_2, inapt_exam_pratiqe_1, inapt_exam_pratiqe_2
+            FROM financier_de_letablissement
+            WHERE candidate_id = ?
+        `, [candidate_id]);
 
-  // التحقق من البيانات المدخلة
-  if (!candidate_id) {
-    return res.status(400).json({ success: false, message: 'Candidate ID is required' });
-  }
+        if (financierData.length === 0) return;
 
-  const connection = await pool.getConnection();
+        const {
+            apt_exam_theoriqe_1, apt_exam_theoriqe_2, inapt_exam_theoriqe_1, inapt_exam_theoriqe_2,
+            apt_exam_pratiqe_1, apt_exam_pratiqe_2, inapt_exam_pratiqe_1, inapt_exam_pratiqe_2
+        } = financierData[0];
 
-  try {
-    // استعلام لإضافة البيانات إلى جدول financier_de_letablissement
-    await connection.execute(`
-      INSERT INTO financier_de_letablissement 
-      (candidate_id, jour_pours_legaliser, exam_medical, frais_de_timbre, la_fin_de_la_formation, 
-       les_devoirs_finaancier_de_letablissement, exam_theoriqe_1, exam_theoriqe_2, exam_pratiqe_1, exam_pratiqe_2,
-       inapt_exam_pratiqe_2 ,inapt_exam_pratiqe_1, apt_exam_pratiqe_1 , apt_exam_pratiqe_1 , apt_exam_theoriqe_1 , apt_exam_theoriqe_2 , inapt_exam_theoriqe_1 ,inapt_exam_theoriqe_2)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ? , ? , ? , ? )
-    `, [
-      candidate_id,
-      jour_pours_legaliser,
-      exam_medical,
-      frais_de_timbre,
-      la_fin_de_la_formation,
-      les_devoirs_finaancier_de_letablissement,
-      exam_theoriqe_1, // تأكد من أن التاريخ تم إرساله بالتنسيق الصحيح
-      exam_theoriqe_2, // تأكد من أن التاريخ تم إرساله بالتنسيق الصحيح
-      exam_pratiqe_1, // تأكد من أن التاريخ تم إرساله بالتنسيق الصحيح
-      exam_pratiqe_2,
-      inapt_exam_pratiqe_1,
-      inapt_exam_pratiqe_2,
-      apt_exam_pratiqe_1,
-      apt_exam_pratiqe_2,
-      apt_exam_theoriqe_1,
-      apt_exam_theoriqe_2,
-      inapt_exam_theoriqe_1, // تأكد من أن التاريخ تم إرساله بالتنسيق الصحيح
-      inapt_exam_theoriqe_2 // تأكد من أن التاريخ تم إرساله بالتنسيق الصحيح
-    ]);
+        let newState = null;
 
-    // إرسال استجابة بنجاح العملية
-    res.status(200).json({ success: true, message: 'Data added successfully' });
-  } catch (err) {
-    console.error('Error adding data to financier_de_letablissement:', err.message);
-    res.status(500).json({ success: false, message: 'Error adding data' });
-  } finally {
-    connection.release();
-  }
-});
+        // تحديد الحالة بناءً على نتائج الاختبارات
+        if (apt_exam_pratiqe_1 || apt_exam_pratiqe_2 || inapt_exam_pratiqe_1 || inapt_exam_pratiqe_2) {
+            newState = 'pratique';
+        } else if (apt_exam_theoriqe_1 || apt_exam_theoriqe_2 || inapt_exam_theoriqe_1 || inapt_exam_theoriqe_2) {
+            newState = 'théorique';
+        }
 
+        // حذف السجلات من جدول reservations إذا تحقق الشرط
+        if (apt_exam_theoriqe_2 || inapt_exam_theoriqe_1) {
+            await connection.execute(
+                'DELETE FROM reservations WHERE candidate_id = ?',
+                [candidate_id]
+            );
+            console.log(`Deleted reservations for candidate ${candidate_id} due to exam conditions`);
+        }
 
+        // تحديث الحالة إذا لزم الأمر
+        if (newState) {
+            await connection.execute(
+                'UPDATE candidates SET state = ? WHERE id = ?',
+                [newState, candidate_id]
+            );
+            console.log(`Updated state for candidate ${candidate_id} to ${newState}`);
+        }
+    } catch (err) {
+        console.error(`Error updating state for candidate ${candidate_id}:`, err.message);
+    }
+}
 
-// مسار لتحديث البيانات في جدول financier_de_letablissement
 router.put('/financier_de_letablissement/:candidate_id', async (req, res) => {
-  const candidate_id = req.params.candidate_id; // استلام candidate_id من الرابط
+  const candidate_id = req.params.candidate_id;
+
+  // استقبال القيم من الطلب
   const {
     jour_pours_legaliser,
     exam_medical,
@@ -86,96 +66,106 @@ router.put('/financier_de_letablissement/:candidate_id', async (req, res) => {
     exam_theoriqe_2,
     exam_pratiqe_1,
     exam_pratiqe_2,
-     inapt_exam_pratiqe_1,
-      inapt_exam_pratiqe_2,
-      apt_exam_pratiqe_1,
-      apt_exam_pratiqe_2,
-      apt_exam_theoriqe_1,
-      apt_exam_theoriqe_2,
-      inapt_exam_theoriqe_1, // تأكد من أن التاريخ تم إرساله بالتنسيق الصحيح
-      inapt_exam_theoriqe_2
+    examen_exceptionnel,
+    inapt_exam_pratiqe_1,
+    inapt_exam_pratiqe_2,
+    apt_exam_pratiqe_1,
+    apt_exam_pratiqe_2,
+    apt_exam_theoriqe_1,
+    apt_exam_theoriqe_2,
+    inapt_exam_theoriqe_1,
+    inapt_exam_theoriqe_2
   } = req.body;
 
   const connection = await pool.getConnection();
 
   try {
-    // استعلام لتحديث البيانات بناءً على candidate_id
-    const [result] = await connection.execute(`
-      UPDATE financier_de_letablissement 
-      SET jour_pours_legaliser = ?, 
-          exam_medical = ?, 
-          frais_de_timbre = ?, 
-          la_fin_de_la_formation = ?, 
-          les_devoirs_finaancier_de_letablissement = ?, 
-          exam_theoriqe_1 = ?, 
-          exam_theoriqe_2 = ?, 
-          exam_pratiqe_1 = ?, 
-          exam_pratiqe_2 = ?, 
-          inapt_exam_pratiqe_1 = ?, 
-          inapt_exam_pratiqe_2 = ?, 
-          apt_exam_pratiqe_1 = ?, 
-          apt_exam_pratiqe_2 = ?, 
-          apt_exam_theoriqe_1 = ?, 
-          apt_exam_theoriqe_2 = ?, 
-          inapt_exam_theoriqe_1 = ?,
-          inapt_exam_theoriqe_2 = ?
-      WHERE candidate_id = ?
-    `, [
-      jour_pours_legaliser,
-      exam_medical,
-      frais_de_timbre,
-      la_fin_de_la_formation,
-      les_devoirs_finaancier_de_letablissement,
-      exam_theoriqe_1,
-      exam_theoriqe_2,
-      exam_pratiqe_1,
-      exam_pratiqe_2,
-      inapt_exam_pratiqe_1,
-      inapt_exam_pratiqe_2,
-      apt_exam_pratiqe_1,
-      apt_exam_pratiqe_2,
-      apt_exam_theoriqe_1,
-      apt_exam_theoriqe_2,
-      inapt_exam_theoriqe_1, // تأكد من أن التاريخ تم إرساله بالتنسيق الصحيح
-      inapt_exam_theoriqe_2,
-      candidate_id
-    ]);
+    // التحقق من وجود المرشح
+    const [candidateExists] = await connection.execute(
+      `SELECT id FROM candidates WHERE id = ?`,
+      [candidate_id]
+    );
 
-    // التحقق من نجاح التحديث
-    if (result.affectedRows === 0) {
-      return res.status(404).json({ success: false, message: 'Candidate not found or no changes made' });
+    if (candidateExists.length === 0) {
+      return res.status(404).json({ success: false, message: 'Candidate not found' });
     }
 
-    // إرسال استجابة بنجاح العملية
-    res.status(200).json({ success: true, message: 'Data updated successfully' });
+    // التحقق من وجود بيانات سابقة
+    const [dataExists] = await connection.execute(
+      `SELECT candidate_id FROM financier_de_letablissement WHERE candidate_id = ?`,
+      [candidate_id]
+    );
+
+    if (dataExists.length > 0) {
+      // تحديث البيانات الموجودة
+      const updateFields = [];
+      const updateValues = [];
+
+      if (jour_pours_legaliser !== undefined) { updateFields.push("jour_pours_legaliser = ?"); updateValues.push(jour_pours_legaliser); }
+      if (exam_medical !== undefined) { updateFields.push("exam_medical = ?"); updateValues.push(exam_medical); }
+      if (frais_de_timbre !== undefined) { updateFields.push("frais_de_timbre = ?"); updateValues.push(frais_de_timbre); }
+      if (la_fin_de_la_formation !== undefined) { updateFields.push("la_fin_de_la_formation = ?"); updateValues.push(la_fin_de_la_formation); }
+      if (les_devoirs_finaancier_de_letablissement !== undefined) { updateFields.push("les_devoirs_finaancier_de_letablissement = ?"); updateValues.push(les_devoirs_finaancier_de_letablissement); }
+      if (exam_theoriqe_1 !== undefined) { updateFields.push("exam_theoriqe_1 = ?"); updateValues.push(exam_theoriqe_1); }
+      if (exam_theoriqe_2 !== undefined) { updateFields.push("exam_theoriqe_2 = ?"); updateValues.push(exam_theoriqe_2); }
+      if (exam_pratiqe_1 !== undefined) { updateFields.push("exam_pratiqe_1 = ?"); updateValues.push(exam_pratiqe_1); }
+      if (exam_pratiqe_2 !== undefined) { updateFields.push("exam_pratiqe_2 = ?"); updateValues.push(exam_pratiqe_2); }
+      if (examen_exceptionnel !== undefined) { updateFields.push("examen_exceptionnel = ?"); updateValues.push(examen_exceptionnel); }
+      if (inapt_exam_pratiqe_1 !== undefined) { updateFields.push("inapt_exam_pratiqe_1 = ?"); updateValues.push(inapt_exam_pratiqe_1); }
+      if (inapt_exam_pratiqe_2 !== undefined) { updateFields.push("inapt_exam_pratiqe_2 = ?"); updateValues.push(inapt_exam_pratiqe_2); }
+      if (apt_exam_pratiqe_1 !== undefined) { updateFields.push("apt_exam_pratiqe_1 = ?"); updateValues.push(apt_exam_pratiqe_1); }
+      if (apt_exam_pratiqe_2 !== undefined) { updateFields.push("apt_exam_pratiqe_2 = ?"); updateValues.push(apt_exam_pratiqe_2); }
+      if (apt_exam_theoriqe_1 !== undefined) { updateFields.push("apt_exam_theoriqe_1 = ?"); updateValues.push(apt_exam_theoriqe_1); }
+      if (apt_exam_theoriqe_2 !== undefined) { updateFields.push("apt_exam_theoriqe_2 = ?"); updateValues.push(apt_exam_theoriqe_2); }
+      if (inapt_exam_theoriqe_1 !== undefined) { updateFields.push("inapt_exam_theoriqe_1 = ?"); updateValues.push(inapt_exam_theoriqe_1); }
+      if (inapt_exam_theoriqe_2 !== undefined) { updateFields.push("inapt_exam_theoriqe_2 = ?"); updateValues.push(inapt_exam_theoriqe_2); }
+
+      if (updateFields.length === 0) {
+        return res.status(400).json({ success: false, message: "No fields provided for update" });
+      }
+
+      const updateQuery = `UPDATE financier_de_letablissement SET ${updateFields.join(", ")} WHERE candidate_id = ?`;
+      updateValues.push(candidate_id);
+
+      await connection.execute(updateQuery, updateValues);
+
+      // تحديث حالة المرشح بعد التعديل
+      await updateCandidateState(connection, candidate_id);
+
+      res.status(200).json({ success: true, message: 'Data updated successfully' });
+    } else {
+      // إدراج بيانات جديدة
+      const insertQuery = `
+        INSERT INTO financier_de_letablissement (
+          candidate_id, jour_pours_legaliser, exam_medical, frais_de_timbre, la_fin_de_la_formation, 
+          les_devoirs_finaancier_de_letablissement, exam_theoriqe_1, exam_theoriqe_2, 
+          exam_pratiqe_1, exam_pratiqe_2, examen_exceptionnel, inapt_exam_pratiqe_1, 
+          inapt_exam_pratiqe_2, apt_exam_pratiqe_1, apt_exam_pratiqe_2, apt_exam_theoriqe_1, 
+          apt_exam_theoriqe_2, inapt_exam_theoriqe_1, inapt_exam_theoriqe_2
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
+
+      const insertValues = [
+        candidate_id, jour_pours_legaliser, exam_medical, frais_de_timbre, la_fin_de_la_formation,
+        les_devoirs_finaancier_de_letablissement, exam_theoriqe_1, exam_theoriqe_2,
+        exam_pratiqe_1, exam_pratiqe_2, examen_exceptionnel, inapt_exam_pratiqe_1,
+        inapt_exam_pratiqe_2, apt_exam_pratiqe_1, apt_exam_pratiqe_2, apt_exam_theoriqe_1,
+        apt_exam_theoriqe_2, inapt_exam_theoriqe_1, inapt_exam_theoriqe_2
+      ];
+
+      await connection.execute(insertQuery, insertValues);
+
+      // تحديث حالة المرشح بعد الإدراج
+      await updateCandidateState(connection, candidate_id);
+
+      res.status(201).json({ success: true, message: 'Data inserted successfully' });
+    }
+
   } catch (err) {
-    console.error('Error updating data in financier_de_letablissement:', err.message);
-    res.status(500).json({ success: false, message: 'Error updating data' });
+    console.error('Error processing data:', err.message);
+    res.status(500).json({ success: false, message: 'Error processing data', error: err.message });
   } finally {
     connection.release();
   }
 });
 
-
-
-router.get('/getallfinancier_de_letablissement', async (req, res) => {
-  const connection = await pool.getConnection();
-
-  try {
-    // استعلام SQL لجلب جميع البيانات من الجدول
-    const [rows] = await connection.execute(`SELECT * FROM financier_de_letablissement`);
-    
-    // إرجاع البيانات في استجابة JSON
-    res.status(200).json({ success: true, data: rows });
-
-  } catch (err) {
-    console.error('Error fetching data:', err.message);
-    res.status(500).json({ success: false, message: 'Error fetching data', error: err.message });
-
-  } finally {
-    connection.release();
-  }
-});
-
-
-module.exports = router; // تصدير الـ Router
+module.exports = router;

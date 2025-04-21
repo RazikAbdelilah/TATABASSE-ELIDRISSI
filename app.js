@@ -1,14 +1,21 @@
 // استيراد المكتبات المطلوبة
 const express = require('express');
-const http = require('http'); // استيراد http
+const http = require('http');
 const app = express();
 const cors = require('cors');
-const jwt = require('jsonwebtoken'); // مكتبة لإنشاء والتحقق من الـ Token
+const jwt = require('jsonwebtoken');
 const { createTables } = require('./database');
+const helmet = require('helmet');
+const socketIo = require('socket.io');
+require('dotenv').config();
+
+// استيراد جميع الروابط كما هي
 const candidatesRoutes = require('./Routes/candidates/candidates');
+const candidatesplus = require("./Routes/candidates/candidatplus");
 const avancesRoutes = require('./Routes/avances');
 const drave = require('./Routes/draveng');
 const responsables = require('./Routes/responsables');
+const logiResponsable = require('./Routes/loginResponsable');
 const nomeschool = require('./Routes/nomschool');
 const monitor = require('./Routes/monitor');
 const List_of_drivers = require('./Routes/List_of_drivers');
@@ -29,85 +36,160 @@ const reservations = require('./Routes/reservations/reservations');
 const getallreservations = require('./Routes/reservations/getAllReservations');
 const getallAvance = require('./Routes/getallAvance');
 const getallderaveng = require('./Routes/getallDraveng')
-const socketIo = require('socket.io');
-require('./cronJob');
-require('./changestate');
-require('dotenv').config(); // استيراد dotenv لتحميل متغيرات البيئة
+const getAllData = require('./getAlltada');
+const heure_nouveaux = require('./Routes/heure_nouveaux')
+const getcandidatinshool = require('./Routes/candidates/getcandidatinshool')
+const getheurshool = require('./Routes/getheurshool')
+const getdraveng = require('./Routes/getdraveng')
+const changestatedraveng = require('./Routes/candidates/changestatedraveng')
+const getletablissement = require('./Routes/getletablissement')
+const profileImage = require('./Routes/image/profileImage')
+const getimage = require('./Routes/image/getimage')
+const getjourdecole = require('./Routes/candidates/getjourdecole')
+const jourdecole = require('./Routes/candidates/jourdecole')
+// require('./changestate');
+// require('./Routes/Conduire_la_voiture')
 
-const server = http.createServer(app); // إنشاء خادم باستخدام http
-const io = socketIo(server); // تهيئة socket.io
+const server = http.createServer(app);
 
+// إعدادات CORS الموسعة للتطوير والإنتاج
+const allowedOrigins = [
+  'http://localhost:3000',
+  'http://localhost:5173',
+  'https://crownelidrissi.com',
+  'https://www.crownelidrissi.com',
+  'ws://localhost:3000',
+  'wss://crownelidrissi.com'
+];
 
-const helmet = require('helmet');
-app.use(helmet.contentSecurityPolicy({
-  directives: {
-    defaultSrc: ["'self'"],
-    connectSrc: ["'self'", 'https://abdelilahrazik.com', 'ws://localhost:3000',
-      'wss://abdelilahrazik.com',
-    ], // السماح باتصالات WebSocket
-  },
-}));
-
-// تعريف المنفذ
-const port = process.env.PORT || 3000;
-
-// إعداد CORS
 const corsOptions = {
-  origin: [
-    'http://localhost:3000', // السماح لطلبات من تطبيق React (في مرحلة التطوير)
-    'https://abdelilahrazik.com', // السماح لطلبات من نطاقك
-    'http://localhost:5173', // إذا كنت تستخدم Vite في مرحلة التطوير
-    'electron://*', // السماح لطلبات من تطبيق Electron
-  ],
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'], // السماح بطرق HTTP المطلوبة
-  allowedHeaders: ['Content-Type', 'Authorization'], // السماح للهيدرات المطلوبة
-  credentials: true, // السماح بإرسال البيانات الاعتمادية (مثل الكوكيز)
+  origin: function (origin, callback) {
+    // السماح لطلبات بدون origin (مثل تطبيقات الهاتف أو curl)
+    if (!origin) return callback(null, true);
+    
+    if (allowedOrigins.indexOf(origin) !== -1 || 
+        origin.endsWith('.crownelidrissi.com')) {
+      callback(null, true);
+    } else {
+      callback(new Error('Not allowed by CORS'));
+    }
+  },
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
+  credentials: true,
+  optionsSuccessStatus: 200
 };
 
+// إعداد Socket.io مع تحسينات التوافق
+const io = socketIo(server, {
+  cors: {
+    origin: allowedOrigins,
+    methods: ["GET", "POST"],
+    credentials: true
+  },
+  transports: ['websocket', 'polling'], // لضمان التوافق مع جميع المتصفحات
+  allowEIO3: true // للتوافق مع إصدارات Socket.io القديمة
+});
 
+// إعداد Helmet مع CSP معدل
+app.use(helmet({
+  contentSecurityPolicy: {
+    directives: {
+      defaultSrc: ["'self'"],
+      connectSrc: [
+        "'self'",
+        ...allowedOrigins,
+        "ws://localhost:3000",
+        "wss://crownelidrissi.com"
+      ],
+      scriptSrc: ["'self'", "'unsafe-inline'", "'unsafe-eval'"],
+      imgSrc: ["'self'", "data:", "https://crownelidrissi.com"],
+      frameSrc: ["'self'"]
+    }
+  },
+  crossOriginEmbedderPolicy: false,
+  crossOriginResourcePolicy: { policy: "cross-origin" }
+}));
+
+// تطبيق CORS
+app.use(cors(corsOptions));
+app.use(express.json());
+
+// إعدادات Socket.io الإضافية
+io.engine.on("initial_headers", (headers, req) => {
+  if (req.headers.origin && allowedOrigins.includes(req.headers.origin)) {
+    headers["Access-Control-Allow-Origin"] = req.headers.origin;
+    headers["Access-Control-Allow-Credentials"] = "true";
+  }
+});
+
+io.engine.on("headers", (headers, req) => {
+  if (req.headers.origin && allowedOrigins.includes(req.headers.origin)) {
+    headers["Access-Control-Allow-Origin"] = req.headers.origin;
+    headers["Access-Control-Allow-Credentials"] = "true";
+  }
+});
 
 // إرفاق io بـ app لاستخدامه في الروابط
 app.set('io', io);
 
-// إعداد socket.io للاتصالات
+// إعداد اتصالات Socket.io
 io.on('connection', (socket) => {
-  console.log('A client connected');
-
-  socket.on('disconnect', () => {
-    console.log('A client disconnected');
+  console.log('New client connected:', socket.id);
+  
+  socket.on('error', (error) => {
+    console.error('Socket error:', error);
+  });
+  
+  socket.on('disconnect', (reason) => {
+    console.log('Client disconnected:', reason);
   });
 });
 
+// جميع الروابط المحمية وغير المحمية (كما هي في الكود الأصلي)
+app.use('/responsables', authenticateToken, responsables);
+app.use('/candidates', authenticateToken, candidatesRoutes);
+app.use('/candidatesplus', authenticateToken, candidatesplus);
+app.use('/candidates', authenticateToken, updateinfo);
+app.use('/candidates', authenticateToken, getallcandidates);
+app.use('/candidatesshool', authenticateToken, getcandidatinshool);
+app.use('/candidates', authenticateToken, addConduire);
+app.use('/avances', authenticateToken, avancesRoutes);
+app.use('/avances', authenticateToken, getallAvance);
+app.use('/draveng', authenticateToken, drave);
+app.use('/draveng', authenticateToken, getallderaveng);
+app.use('/nomeschool', authenticateToken, nomeschool);
+app.use('/monitor', authenticateToken, monitor);
+app.use('/listofdriive', authenticateToken, List_of_drivers);
+app.use('/dravengss', authenticateToken, getdraveng);
+app.use('/financier', authenticateToken, financier_de_letablissement);
+app.use('/financier', authenticateToken, getletablissement);
+app.use('/getpdf', authenticateToken, getpdf);
+app.use('/api', authenticateToken, driversRoutes);
+app.use('/candidates', authenticateToken, resetpassword);
+app.use('/heurs', authenticateToken, getAllHeurs);
+app.use('/heurs', authenticateToken, getHeursByCandidate);
+app.use('/heurs', authenticateToken, addHeur);
+app.use('/reservations', authenticateToken, reservations);
+app.use('/reservations', authenticateToken, getallreservations);
+app.use('/getAllData', authenticateToken, getAllData);
+app.use('/heurenouveaux', authenticateToken, heure_nouveaux);
+app.use('/heurenouveauxss', authenticateToken, getheurshool);
+app.use('/changestatedraveng', authenticateToken, changestatedraveng);
+app.use('/getConduire', authenticateToken, getConduire);
+app.use('/profileImage', authenticateToken, profileImage);
+app.use('/getimage', authenticateToken, getimage);
+app.use('/getjourdecole', authenticateToken, getjourdecole);
+app.use('/jourdecole', authenticateToken, jourdecole);
 
-app.use(cors(corsOptions)); // تطبيق CORS مع الخيارات
-app.use(express.json());
-
-// Routes
+// Routes غير المحمية
+app.use('/logiResponsable', logiResponsable);
 app.use('/loginuser', loginuser);
-app.use('/candidates', candidatesRoutes);
-app.use('/candidates', updateinfo);
-app.use('/candidates', getallcandidates);
-app.use('/avances', avancesRoutes);
-app.use('/avances', getallAvance);
-app.use('/draveng', drave);
-app.use('/draveng', getallderaveng);
-app.use('/responsables', responsables);
-app.use('/nomeschool', nomeschool);
-app.use('/monitor', monitor);
-app.use('/listofdriive', List_of_drivers);
-app.use('/financier', financier_de_letablissement);
-app.use('/getpdf', getpdf);
-app.use('/api', driversRoutes);
-app.use('/candidates', resetpassword);
-app.use('/heurs', getAllHeurs);
-app.use('/heurs', getHeursByCandidate);
-app.use('/heurs', addHeur);
-app.use('/reservations', reservations);
-app.use('/reservations', getallreservations);
 
 // تشغيل الخادم
+const port = process.env.PORT || 3000;
 server.listen(port, () => {
-  console.log(`http://localhost:${port}`);
+  console.log(`Server running on port ${port}`);
 });
 
 // بدء الخادم وإنشاء الجداول

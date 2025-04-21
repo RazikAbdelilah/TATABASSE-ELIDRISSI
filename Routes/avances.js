@@ -2,14 +2,39 @@ const express = require('express');
 const router = express.Router();
 const { pool } = require('../database');
 
-// إضافة دفعة جديدة
+require('dotenv').config(); // تحميل المتغيرات من .env
+const crypto = require('crypto');
+
+// دالة لتشفير القيمة باستخدام createCipheriv
+function encryptValue(value, secretKey) {
+  const algorithm = 'aes-256-cbc';
+  const key = crypto.scryptSync(secretKey, 'salt', 32); // مفتاح بطول 32 بايت
+  const iv = crypto.randomBytes(16); // متجه ابتدائي (IV) عشوائي بطول 16 بايت
+  const cipher = crypto.createCipheriv(algorithm, key, iv);
+  let encrypted = cipher.update(value, 'utf8', 'hex');
+  encrypted += cipher.final('hex');
+  return `${iv.toString('hex')}:${encrypted}`; // إرجاع IV والقيمة المشفرة معًا
+}
+
+// دالة لفك تشفير القيمة باستخدام createDecipheriv
+function decryptValue(encryptedValue, secretKey) {
+  const algorithm = 'aes-256-cbc';
+  const [ivHex, encrypted] = encryptedValue.split(':'); // فصل IV والقيمة المشفرة
+  const key = crypto.scryptSync(secretKey, 'salt', 32); // مفتاح بطول 32 بايت
+  const iv = Buffer.from(ivHex, 'hex'); // تحويل IV من نص hex إلى Buffer
+  const decipher = crypto.createDecipheriv(algorithm, key, iv);
+  let decrypted = decipher.update(encrypted, 'hex', 'utf8');
+  decrypted += decipher.final('utf8');
+  return decrypted;
+}
+
 router.post('/addavance', async (req, res) => {
   const connection = await pool.getConnection();
   try {
-    const { candidate_id, montant, date, number_duserie } = req.body;
+    const { candidate_id, montant, date, responsabl, number_duserie } = req.body;
 
     // التحقق من الحقول المطلوبة
-    if (!candidate_id || !montant || !date || !number_duserie) {
+    if (!candidate_id || !montant || !date) {
       return res.status(400).json({ message: 'Missing required fields (candidate_id, montant, date, number_duserie)' });
     }
 
@@ -20,8 +45,12 @@ router.post('/addavance', async (req, res) => {
 
     // التحقق من صحة التاريخ
     if (!isValidDate(date)) {
-      return res.status(400).json({ message: 'Invalid date format' });
+      return res.status(400).json({ message: 'Invalid date format (YYYY-MM-DD)' });
     }
+
+    // تشفير montant
+    const secretKey = process.env.SECRET_KEY; // يجب أن يكون هذا المفتاح سريًا وآمنًا
+    const encryptedMontant = encryptValue(montant.toString(), secretKey);
 
     // بدء معاملة (Transaction)
     await connection.beginTransaction();
@@ -56,30 +85,38 @@ router.post('/addavance', async (req, res) => {
 
     // إضافة الدفعة مع الرقم التسلسلي و number_duserie
     const [result] = await connection.execute(
-      `INSERT INTO avances (candidate_id, montant, date, number_duserie, Numéro_desérie_pardéfaut) 
-       VALUES (?, ?, ?, ?, ?)`,
-      [candidate_id, montant, date, number_duserie, Numéro_desérie_pardéfaut]
+      `INSERT INTO avances (candidate_id, montant, date, responsabl, number_duserie, Numéro_desérie_pardéfaut, nome_school) 
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      [candidate_id, encryptedMontant, date, responsabl, number_duserie, Numéro_desérie_pardéfaut, nome_school]
     );
 
     // تأكيد المعاملة
     await connection.commit();
 
+    // فك تشفير montant لإرسال القيمة الحقيقية
+    const decryptedMontant = decryptValue(encryptedMontant, secretKey);
+
     // إرسال إشعار عبر Socket.IO
     const io = req.app.get('io');
-    io.emit('avanceAdded', {
-      id: result.insertId,
-      candidate_id,
-      montant,
-      date,
-      number_duserie,
-      Numéro_desérie_pardéfaut,
-    });
+    if (io) {
+      io.emit('avanceAdded', {
+        id: result.insertId,
+        candidate_id,
+        montant: decryptedMontant, // إرسال القيمة الحقيقية بعد فك التشفير
+        date,
+        responsabl,
+        number_duserie,
+        Numéro_desérie_pardéfaut,
+        nome_school,
+      });
+    }
 
     res.status(201).json({ 
       message: 'Avance added successfully', 
       id: result.insertId, 
       number_duserie,
-      Numéro_desérie_pardéfaut 
+      Numéro_desérie_pardéfaut,
+      nome_school
     });
   } catch (err) {
     // التراجع عن المعاملة في حالة حدوث خطأ
