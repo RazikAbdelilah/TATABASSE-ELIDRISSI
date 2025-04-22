@@ -1,21 +1,11 @@
 const express = require('express');
 const router = express.Router();
 const { pool } = require('../../database');
-const crypto = require('crypto');
+
 
 require('dotenv').config(); // تحميل المتغيرات من .env
 
-// دالة لفك تشفير القيمة باستخدام createDecipheriv
-function decryptValue(encryptedValue, secretKey) {
-  const algorithm = 'aes-256-cbc';
-  const [ivHex, encrypted] = encryptedValue.split(':'); // فصل IV والقيمة المشفرة
-  const key = crypto.scryptSync(secretKey, 'salt', 32); // مفتاح بطول 32 بايت
-  const iv = Buffer.from(ivHex, 'hex'); // تحويل IV من نص hex إلى Buffer
-  const decipher = crypto.createDecipheriv(algorithm, key, iv);
-  let decrypted = decipher.update(encrypted, 'hex', 'utf8');
-  decrypted += decipher.final('utf8');
-  return decrypted;
-}
+
 
 // استخدام middleware للتحقق من التوكن قبل الوصول إلى الـ route
 router.get('/getall', async (req, res) => {

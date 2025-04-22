@@ -31,7 +31,7 @@ async function updateCandidateState(connection, candidate_id) {
         }
 
         // حذف السجلات من جدول reservations إذا تحقق الشرط
-        if (apt_exam_theoriqe_2 || inapt_exam_theoriqe_1) {
+        if (apt_exam_theoriqe_1 || inapt_exam_theoriqe_1) {
             await connection.execute(
                 'DELETE FROM reservations WHERE candidate_id = ?',
                 [candidate_id]
