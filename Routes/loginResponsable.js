@@ -94,7 +94,7 @@ router.post('/login', async (req, res) => {
             [responsable.id]
         );
 
-        if (activeSessions.length > 0) {
+        if (activeSessions.length > 4) {
             return res.status(403).json({ 
                 message: "Connexion impossible: session déjà active sur un autre appareil" 
             });

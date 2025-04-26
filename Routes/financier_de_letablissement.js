@@ -36,8 +36,24 @@ async function updateCandidateState(connection, candidate_id) {
                 'DELETE FROM reservations WHERE candidate_id = ?',
                 [candidate_id]
             );
-            console.log(`Deleted reservations for candidate ${candidate_id} due to exam conditions`);
+            
         }
+
+        if (inapt_exam_pratiqe_2 || apt_exam_pratiqe_1 || apt_exam_pratiqe_2) {
+          await connection.execute(
+              'DELETE FROM conduire_la_voiture WHERE candidate_id = ?',
+              [candidate_id]
+          );
+          
+      }
+
+      if (inapt_exam_pratiqe_2 || apt_exam_pratiqe_1 || apt_exam_pratiqe_2) {
+        await connection.execute(
+            'DELETE FROM draveng WHERE candidate_id = ?',
+            [candidate_id]
+        );
+        
+    }
 
         // تحديث الحالة إذا لزم الأمر
         if (newState) {

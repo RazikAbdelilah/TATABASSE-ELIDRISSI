@@ -270,6 +270,8 @@ CREATE TABLE IF NOT EXISTS financier_de_letablissement  (
     `);
 
 
+
+
     await connection.execute(`
 
  CREATE TABLE IF NOT EXISTS active_sessions (
