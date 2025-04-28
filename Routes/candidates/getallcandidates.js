@@ -19,21 +19,22 @@ router.get('/getall', async (req, res) => {
       whereAdded = true;
     }
 
-    // إضافة فلتر CIN إذا موجود - تم التعديل هنا لاستخدام LIKE
+    // إضافة فلتر CIN إذا موجود
     if (cin) {
       query += whereAdded ? ' AND cin LIKE ?' : ' WHERE cin LIKE ?';
       queryParams.push(`${cin}%`);
       whereAdded = true;
     }
 
-    // تحديد الترتيب والحدود
+    // تحديد الترتيب
     query += ' ORDER BY id DESC';
 
+    // معالجة LIMIT بشكل صحيح
     if (limit === 'last') {
       query += ' LIMIT 1';
     } else if (!isNaN(limit)) {
-      query += ' LIMIT ?';
-      queryParams.push(parseInt(limit));
+      const limitValue = parseInt(limit);
+      query += ` LIMIT ${limitValue}`; // إضافة القيمة مباشرة لتجنب مشكلة المعلمات
     } else if (limit !== 'all') {
       query += ' LIMIT 200'; // الحالة الافتراضية
     }
@@ -42,10 +43,13 @@ router.get('/getall', async (req, res) => {
     const [candidates] = await connection.execute(query, queryParams);
 
     if (candidates.length === 0) {
-      return res.status(404).json({ message: 'لا توجد بيانات متاحة' });
+      return res.status(404).json({ 
+        success: false,
+        message: 'لا توجد بيانات متاحة' 
+      });
     }
 
-    // الباقي من الكود يبقى كما هو...
+    // جلب البيانات المالية للمرشحين
     if (candidates.length > 0) {
       const placeholders = candidates.map(() => '?').join(',');
       const [financier] = await connection.execute(
@@ -59,6 +63,7 @@ router.get('/getall', async (req, res) => {
         financier_de_letablissement: financier.filter(f => f.candidate_id === candidate.id), 
       }));
 
+      // إرسال إشعار عبر Socket.io إذا كان متاحاً
       if (req.app.io) {
         req.app.io.emit('candidatesRetrieved', {
           message: 'تم استرجاع البيانات بنجاح',
@@ -73,6 +78,7 @@ router.get('/getall', async (req, res) => {
       });
     }
 
+    // في حالة عدم وجود بيانات مالية
     return res.status(200).json({
       success: true,
       message: 'لا توجد بيانات مالية مرتبطة',
@@ -87,7 +93,9 @@ router.get('/getall', async (req, res) => {
       error: err.message
     });
   } finally {
-    connection.release();
+    if (connection) {
+      connection.release();
+    }
   }
 });
 

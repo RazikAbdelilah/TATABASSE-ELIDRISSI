@@ -271,6 +271,18 @@ CREATE TABLE IF NOT EXISTS financier_de_letablissement  (
 
 
 
+    await connection.execute(`
+      CREATE TABLE IF NOT EXISTS messags (
+      id INT AUTO_INCREMENT PRIMARY KEY,  
+      candidate_id INT NOT NULL,
+      note BOOLEAN DEFAULT FALSE,  
+      message VARCHAR(255)  NULL, 
+      FOREIGN KEY (candidate_id) REFERENCES candidates(id) 
+  );
+      `);
+
+
+
 
     await connection.execute(`
 

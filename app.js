@@ -47,6 +47,8 @@ const profileImage = require('./Routes/image/profileImage')
 const getimage = require('./Routes/image/getimage')
 const getjourdecole = require('./Routes/candidates/getjourdecole')
 const jourdecole = require('./Routes/candidates/jourdecole')
+const note = require('./Routes/note')
+const jourdescode = require('./Routes/journnedescode')
 // require('./changestate');
 // require('./Routes/Conduire_la_voiture')
 
@@ -181,6 +183,8 @@ app.use('/profileImage', authenticateToken, profileImage);
 app.use('/getimage', authenticateToken, getimage);
 app.use('/getjourdecole', authenticateToken, getjourdecole);
 app.use('/jourdecole', authenticateToken, jourdecole);
+app.use('/message' , authenticateToken , note )
+app.use('/jour' , authenticateToken , jourdescode )
 
 // Routes غير المحمية
 app.use('/logiResponsable', logiResponsable);
