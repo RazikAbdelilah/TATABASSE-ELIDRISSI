@@ -129,6 +129,95 @@ router.post('/addavance', async (req, res) => {
   }
 });
 
+
+
+router.put('/updateavance/:id', async (req, res) => {
+  const connection = await pool.getConnection();
+  try {
+    const { id } = req.params;
+    const { montant, date } = req.body;
+
+    // التحقق من وجود الحقول المطلوبة
+    if (!montant && !date) {
+      return res.status(400).json({ message: 'يجب تقديم montant أو date للتحديث' });
+    }
+
+    // التحقق من أن montant هو رقم إذا تم تقديمه
+    if (montant && (isNaN(montant) || parseFloat(montant) <= 0)) {
+      return res.status(400).json({ message: 'montant يجب أن يكون رقمًا موجبًا' });
+    }
+
+    // التحقق من صحة التاريخ إذا تم تقديمه
+    if (date && !isValidDate(date)) {
+      return res.status(400).json({ message: 'صيغة التاريخ غير صالحة (YYYY-MM-DD)' });
+    }
+
+    await connection.beginTransaction();
+
+    // الحصول على البيانات الحالية
+    const [currentAvance] = await connection.execute(
+      `SELECT * FROM avances WHERE id = ?`,
+      [id]
+    );
+
+    if (currentAvance.length === 0) {
+      return res.status(404).json({ message: 'لم يتم العثور على السلفة' });
+    }
+
+    // تشفير montant الجديد إذا تم تقديمه
+    let encryptedMontant = currentAvance[0].montant;
+    if (montant) {
+      const secretKey = process.env.SECRET_KEY;
+      encryptedMontant = encryptValue(montant.toString(), secretKey);
+    }
+
+    // تحديث البيانات
+    const [result] = await connection.execute(
+      `UPDATE avances 
+       SET montant = ?, date = ?
+       WHERE id = ?`,
+      [
+        encryptedMontant,
+        date || currentAvance[0].date, // استخدام التاريخ الحالي إذا لم يتم تقديم تاريخ جديد
+        id
+      ]
+    );
+
+    if (result.affectedRows === 0) {
+      return res.status(404).json({ message: 'لم يتم العثور على السلفة أو لم يتم تحديث البيانات' });
+    }
+
+    await connection.commit();
+
+    // فك تشفير montant لإرسال القيمة الحقيقية
+    const secretKey = process.env.SECRET_KEY;
+    const decryptedMontant = decryptValue(encryptedMontant, secretKey);
+
+    // إرسال إشعار عبر Socket.IO
+    const io = req.app.get('io');
+    if (io) {
+      io.emit('avanceUpdated', {
+        id,
+        montant: decryptedMontant,
+        date: date || currentAvance[0].date,
+      });
+    }
+
+    res.status(200).json({ 
+      message: 'تم تحديث السلفة بنجاح',
+      id,
+      montant: decryptedMontant,
+      date: date || currentAvance[0].date
+    });
+  } catch (err) {
+    await connection.rollback();
+    console.error('حدث خطأ أثناء تحديث السلفة:', err.message);
+    res.status(500).json({ message: 'حدث خطأ', error: err.message });
+  } finally {
+    connection.release();
+  }
+});
+
 // دالة مساعدة للتحقق من صحة التاريخ
 function isValidDate(dateString) {
   const regex = /^\d{4}-\d{2}-\d{2}$/; // تنسيق YYYY-MM-DD
